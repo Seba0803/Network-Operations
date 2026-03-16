@@ -35,7 +35,7 @@ function ProgressBar({ done, total }) {
   )
 }
 
-export default function Dashboard({ session, onOpenDetail }) {
+export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetail }) {
   const [ops, setOps] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('ALL')
@@ -43,8 +43,6 @@ export default function Dashboard({ session, onOpenDetail }) {
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ name: '', type: 'NUOVO NEGOZIO', date: '', note: '' })
-
-  const userName = session?.user?.user_metadata?.full_name || session?.user?.email || '—'
 
   const loadOps = useCallback(async () => {
     const { data: operations } = await supabase
@@ -57,7 +55,6 @@ export default function Dashboard({ session, onOpenDetail }) {
 
   useEffect(() => {
     loadOps()
-    // Realtime subscription
     const channel = supabase.channel('ops-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'operations' }, loadOps)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, loadOps)
@@ -95,7 +92,6 @@ export default function Dashboard({ session, onOpenDetail }) {
       type: form.type,
       date: form.date || null,
       note: form.note.trim() || null,
-      created_by: session.user.id,
       created_by_name: userName,
     }).select().single()
 
@@ -127,26 +123,27 @@ export default function Dashboard({ session, onOpenDetail }) {
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '1rem' }}>
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 600 }}>IT Ops — Growth Tracker</h1>
-          <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2 }}>Ciao, {userName}</div>
+          <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Ciao, {userName}
+            {!canEdit && <span style={{ background: '#FAEEDA', color: '#633806', fontSize: 11, padding: '1px 8px', borderRadius: 20 }}>sola lettura</span>}
+            <button onClick={onChangeName} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontSize: 12, cursor: 'pointer', padding: 0 }}>cambia</button>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button onClick={() => exportToExcel(ops)} style={{ padding: '8px 14px', background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 13, color: 'var(--text)' }}>
             ↓ Export Excel
           </button>
-          <button onClick={() => setShowModal(true)} style={{ padding: '8px 16px', background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500 }}>
-            + Nuova operazione
-          </button>
-          <button onClick={() => supabase.auth.signOut()} style={{ padding: '8px 12px', background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 13, color: 'var(--text2)' }}>
-            Esci
-          </button>
+          {canEdit && (
+            <button onClick={() => setShowModal(true)} style={{ padding: '8px 16px', background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500 }}>
+              + Nuova operazione
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 10, marginBottom: '1.25rem' }}>
         <StatCard label="Totale" value={stats.total} />
         <StatCard label="In corso" value={stats.wip} color="var(--amber)" />
@@ -154,14 +151,8 @@ export default function Dashboard({ session, onOpenDetail }) {
         <StatCard label="Da iniziare" value={stats.todo} />
       </div>
 
-      {/* Search + Filters */}
       <div style={{ marginBottom: '0.75rem' }}>
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Cerca per nome sede…"
-          style={{ marginBottom: 10 }}
-        />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca per nome sede…" style={{ marginBottom: 10 }} />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {['ALL', ...TYPES].map(t => (
             <button key={t} onClick={() => setFilter(t)} style={{
@@ -177,12 +168,11 @@ export default function Dashboard({ session, onOpenDetail }) {
         </div>
       </div>
 
-      {/* Operations list */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text2)', fontSize: 14 }}>Caricamento…</div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text2)', fontSize: 14, border: '1px dashed var(--border2)', borderRadius: 12 }}>
-          {ops.length === 0 ? 'Nessuna operazione. Clicca "+ Nuova operazione" per iniziare.' : 'Nessun risultato per i filtri selezionati.'}
+          {ops.length === 0 ? 'Nessuna operazione. Clicca "+ Nuova operazione" per iniziare.' : 'Nessun risultato.'}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -209,10 +199,12 @@ export default function Dashboard({ session, onOpenDetail }) {
                     {op.note && <div style={{ fontSize: 12, color: 'var(--text2)', fontStyle: 'italic', marginTop: 4 }}>{op.note}</div>}
                     {tasks.length > 0 && <ProgressBar done={doneTasks} total={tasks.length} />}
                   </div>
-                  <button onClick={e => deleteOp(op.id, e)}
-                    style={{ padding: '4px 10px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, color: 'var(--text2)', marginLeft: 8 }}>
-                    Elimina
-                  </button>
+                  {canEdit && (
+                    <button onClick={e => deleteOp(op.id, e)}
+                      style={{ padding: '4px 10px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, color: 'var(--text2)', marginLeft: 8 }}>
+                      Elimina
+                    </button>
+                  )}
                   <span style={{ fontSize: 18, color: 'var(--text3)', marginLeft: 4 }}>›</span>
                 </div>
               </div>
@@ -221,8 +213,7 @@ export default function Dashboard({ session, onOpenDetail }) {
         </div>
       )}
 
-      {/* Modal nuova operazione */}
-      {showModal && (
+      {canEdit && showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
           onClick={e => e.target === e.currentTarget && setShowModal(false)}>
           <div style={{ background: 'var(--bg)', borderRadius: 14, padding: '1.5rem', width: '100%', maxWidth: 420, maxHeight: '90vh', overflowY: 'auto' }}>
@@ -247,13 +238,11 @@ export default function Dashboard({ session, onOpenDetail }) {
             </div>
             {form.type !== 'ALTRO' && (
               <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px', marginBottom: 16, fontSize: 13, color: 'var(--text2)' }}>
-                Verranno create automaticamente <strong>{TASK_TEMPLATES[form.type]?.length}</strong> sotto-attività per questa tipologia.
+                Verranno create automaticamente <strong>{TASK_TEMPLATES[form.type]?.length}</strong> sotto-attività.
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowModal(false)} style={{ padding: '8px 16px', background: 'none', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 14, color: 'var(--text)' }}>
-                Annulla
-              </button>
+              <button onClick={() => setShowModal(false)} style={{ padding: '8px 16px', background: 'none', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 14, color: 'var(--text)' }}>Annulla</button>
               <button onClick={createOp} disabled={saving || !form.name.trim()} style={{ padding: '8px 18px', background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500, opacity: saving ? 0.7 : 1 }}>
                 {saving ? 'Salvataggio…' : 'Crea'}
               </button>
