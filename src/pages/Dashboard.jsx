@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { TASK_TEMPLATES, TYPE_LABELS, TYPE_COLORS } from '../lib/templates'
 import { exportToExcel } from '../lib/exportExcel'
+import { parseProtocollo } from '../lib/parseWord'
 
 const TYPES = Object.keys(TYPE_LABELS)
 
@@ -42,7 +43,10 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [parsing, setParsing] = useState(false)
+  const [parsePreview, setParsePreview] = useState(null)
   const [form, setForm] = useState({ name: '', type: 'NUOVO NEGOZIO', date: '', note: '' })
+  const fileRef = useRef()
 
   const loadOps = useCallback(async () => {
     const { data: operations } = await supabase
@@ -84,6 +88,35 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
     todo: ops.filter(o => getStatus(o) === 'todo').length,
   }
 
+  const handleWordUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setParsing(true)
+    try {
+      const data = await parseProtocollo(file)
+      setParsePreview(data)
+      const noteLines = []
+      if (data.codiceFiliale) noteLines.push(`Codice filiale: ${data.codiceFiliale}`)
+      if (data.tipoFiliale) noteLines.push(`Tipo: ${data.tipoFiliale}`)
+      if (data.indirizzo) noteLines.push(`Indirizzo: ${data.indirizzo}`)
+      if (data.zona) noteLines.push(`Zona: ${data.zona}`)
+      if (data.autogestore) noteLines.push(`Autogestore: ${data.autogestore}`)
+      if (data.dataAmministrativa) noteLines.push(`Apertura amministrativa (Fox): ${new Date(data.dataAmministrativa).toLocaleDateString('it-IT')}`)
+      if (data.dataCommerciale) noteLines.push(`Apertura commerciale: ${new Date(data.dataCommerciale).toLocaleDateString('it-IT')}`)
+      setForm({
+        name: data.nome || '',
+        type: data.suggeritedType || 'NUOVO NEGOZIO',
+        date: data.dataCommerciale || data.dataAmministrativa || '',
+        note: noteLines.join('\n'),
+      })
+      setShowModal(true)
+    } catch (err) {
+      alert('Errore nella lettura del file: ' + err.message)
+    }
+    setParsing(false)
+    e.target.value = ''
+  }
+
   const createOp = async () => {
     if (!form.name.trim()) return
     setSaving(true)
@@ -97,14 +130,13 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
 
     if (!error && op) {
       const tasks = (TASK_TEMPLATES[form.type] || []).map((label, i) => ({
-        operation_id: op.id,
-        label,
-        sort_order: i,
+        operation_id: op.id, label, sort_order: i,
       }))
       if (tasks.length) await supabase.from('tasks').insert(tasks)
     }
     setSaving(false)
     setShowModal(false)
+    setParsePreview(null)
     setForm({ name: '', type: 'NUOVO NEGOZIO', date: '', note: '' })
     loadOps()
   }
@@ -134,12 +166,22 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button onClick={() => exportToExcel(ops)} style={{ padding: '8px 14px', background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 13, color: 'var(--text)' }}>
-            ↓ Export Excel
+            ↓ Excel
           </button>
           {canEdit && (
-            <button onClick={() => setShowModal(true)} style={{ padding: '8px 16px', background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500 }}>
-              + Nuova operazione
-            </button>
+            <>
+              <input ref={fileRef} type="file" accept=".doc,.docx" onChange={handleWordUpload} style={{ display: 'none' }} />
+              <button
+                onClick={() => fileRef.current.click()}
+                disabled={parsing}
+                style={{ padding: '8px 14px', background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 13, color: 'var(--text)' }}>
+                {parsing ? 'Lettura...' : '📄 Importa protocollo'}
+              </button>
+              <button onClick={() => { setParsePreview(null); setForm({ name: '', type: 'NUOVO NEGOZIO', date: '', note: '' }); setShowModal(true) }}
+                style={{ padding: '8px 16px', background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500 }}>
+                + Nuova
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -172,7 +214,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
         <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text2)', fontSize: 14 }}>Caricamento…</div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text2)', fontSize: 14, border: '1px dashed var(--border2)', borderRadius: 12 }}>
-          {ops.length === 0 ? 'Nessuna operazione. Clicca "+ Nuova operazione" per iniziare.' : 'Nessun risultato.'}
+          {ops.length === 0 ? 'Nessuna operazione. Clicca "+ Nuova" o importa un protocollo Word.' : 'Nessun risultato.'}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -196,7 +238,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
                       {dateStr && <span style={{ fontSize: 12, color: 'var(--text2)' }}>{dateStr}</span>}
                       {op.created_by_name && <span style={{ fontSize: 12, color: 'var(--text3)' }}>— {op.created_by_name}</span>}
                     </div>
-                    {op.note && <div style={{ fontSize: 12, color: 'var(--text2)', fontStyle: 'italic', marginTop: 4 }}>{op.note}</div>}
+                    {op.note && <div style={{ fontSize: 12, color: 'var(--text2)', fontStyle: 'italic', marginTop: 4, whiteSpace: 'pre-line' }}>{op.note}</div>}
                     {tasks.length > 0 && <ProgressBar done={doneTasks} total={tasks.length} />}
                   </div>
                   {canEdit && (
@@ -216,35 +258,42 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
       {canEdit && showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
           onClick={e => e.target === e.currentTarget && setShowModal(false)}>
-          <div style={{ background: 'var(--bg)', borderRadius: 14, padding: '1.5rem', width: '100%', maxWidth: 420, maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: 17, fontWeight: 600, marginBottom: '1rem' }}>Nuova operazione</h2>
+          <div style={{ background: 'var(--bg)', borderRadius: 14, padding: '1.5rem', width: '100%', maxWidth: 440, maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: 17, fontWeight: 600, marginBottom: parsePreview ? 8 : '1rem' }}>
+              {parsePreview ? '📄 Importato da protocollo' : 'Nuova operazione'}
+            </h2>
+
+            {parsePreview && (
+              <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px', marginBottom: '1rem', fontSize: 12, color: 'var(--text2)' }}>
+                Dati letti dal documento — verifica e correggi se necessario
+              </div>
+            )}
+
             <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--text2)', marginBottom: 4 }}>Nome / Sede *</label>
+              <label style={lbl}>Nome / Sede *</label>
               <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Es. Negozio Milano Centrale" autoFocus />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--text2)', marginBottom: 4 }}>Tipologia *</label>
+              <label style={lbl}>Tipologia *</label>
               <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
                 {TYPES.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
               </select>
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--text2)', marginBottom: 4 }}>Data apertura prevista</label>
+              <label style={lbl}>Data apertura commerciale</label>
               <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--text2)', marginBottom: 4 }}>Note generali</label>
-              <textarea value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} placeholder="Informazioni aggiuntive…" />
+              <label style={lbl}>Note / dettagli</label>
+              <textarea value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} rows={5} placeholder="Informazioni aggiuntive…" />
             </div>
-            {form.type !== 'ALTRO' && (
-              <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px', marginBottom: 16, fontSize: 13, color: 'var(--text2)' }}>
-                Verranno create automaticamente <strong>{TASK_TEMPLATES[form.type]?.length}</strong> sotto-attività.
-              </div>
-            )}
+            <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '8px 12px', marginBottom: 16, fontSize: 13, color: 'var(--text2)' }}>
+              Verranno create <strong>{TASK_TEMPLATES[form.type]?.length || 0}</strong> sotto-attività automaticamente.
+            </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowModal(false)} style={{ padding: '8px 16px', background: 'none', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 14, color: 'var(--text)' }}>Annulla</button>
-              <button onClick={createOp} disabled={saving || !form.name.trim()} style={{ padding: '8px 18px', background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500, opacity: saving ? 0.7 : 1 }}>
-                {saving ? 'Salvataggio…' : 'Crea'}
+              <button onClick={() => { setShowModal(false); setParsePreview(null) }} style={btnSecondary}>Annulla</button>
+              <button onClick={createOp} disabled={saving || !form.name.trim()} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Salvataggio…' : 'Crea operazione'}
               </button>
             </div>
           </div>
@@ -253,3 +302,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
     </div>
   )
 }
+
+const lbl = { display: 'block', fontSize: 13, color: 'var(--text2)', marginBottom: 4 }
+const btnPrimary = { padding: '8px 18px', background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: 'pointer' }
+const btnSecondary = { padding: '8px 16px', background: 'none', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 14, color: 'var(--text)', cursor: 'pointer' }
