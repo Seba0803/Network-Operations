@@ -1,25 +1,11 @@
-import { useState, useEffect } from 'react'
-import { supabase } from './lib/supabase'
-import Login from './pages/Login'
+import { useState } from 'react'
 import Dashboard from './pages/Dashboard'
 import OperationDetail from './pages/OperationDetail'
 
 export default function App() {
-  const [session, setSession] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState('dashboard') // 'dashboard' | 'detail'
+  const [userName, setUserName] = useState(localStorage.getItem('itops_name') || '')
+  const [page, setPage] = useState('dashboard')
   const [selectedOpId, setSelectedOpId] = useState(null)
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
-    })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
-      setSession(s)
-    })
-    return () => subscription.unsubscribe()
-  }, [])
 
   const navigate = (p, opId = null) => {
     setPage(p)
@@ -27,29 +13,28 @@ export default function App() {
     window.scrollTo(0, 0)
   }
 
-  if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text2)', fontSize: 14 }}>
-      Caricamento…
-    </div>
-  )
-
-  if (!session) return <Login />
-
-  return (
-    <>
-      {page === 'dashboard' && (
-        <Dashboard
-          session={session}
-          onOpenDetail={(id) => navigate('detail', id)}
+  if (!userName) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg3)', padding: '1rem' }}>
+      <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 16, padding: '2rem', width: '100%', maxWidth: 360 }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
+        <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>IT Ops Growth Tracker</div>
+        <div style={{ fontSize: 14, color: 'var(--text2)', marginBottom: '1.5rem' }}>Inserisci il tuo nome per continuare</div>
+        <input
+          type="text"
+          placeholder="Es. Marco, Laura..."
+          autoFocus
+          onKeyDown={e => {
+            if (e.key === 'Enter' && e.target.value.trim()) {
+              const name = e.target.value.trim()
+              localStorage.setItem('itops_name', name)
+              setUserName(name)
+            }
+          }}
         />
-      )}
-      {page === 'detail' && (
-        <OperationDetail
-          operationId={selectedOpId}
-          session={session}
-          onBack={() => navigate('dashboard')}
-        />
-      )}
-    </>
-  )
-}
+        <button
+          style={{ width: '100%', padding: '10px', background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: 'pointer', marginTop: 10 }}
+          onClick={e => {
+            const input = e.target.previousSibling
+            if (input.value.trim()) {
+              const name = input.value.trim()
+              localStorage.setItem('itops_na
