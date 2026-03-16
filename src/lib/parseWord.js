@@ -10,8 +10,19 @@ export async function parseProtocollo(file) {
     document.head.appendChild(script)
   })
 
-  const result = await window.mammoth.extractRawText({ arrayBuffer })
-  const text = result.value
+  let text = ''
+  try {
+    const result = await window.mammoth.extractRawText({ arrayBuffer })
+    text = result.value || ''
+  } catch(e1) {
+    try {
+      const result = await window.mammoth.extractRawText({ arrayBuffer: new Uint8Array(arrayBuffer) })
+      text = result.value || ''
+    } catch(e2) {
+      throw new Error('Impossibile leggere il file. Prova a salvarlo come .docx da Word e ricaricalo.')
+    }
+  }
+  if (!text.trim()) throw new Error('Il file sembra vuoto o in formato non supportato. Salvalo come .docx e riprova.')
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
 
   const MESI = {
