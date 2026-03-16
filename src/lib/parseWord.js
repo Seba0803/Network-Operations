@@ -1,28 +1,50 @@
+async function readDocText(arrayBuffer) {
+  // Prova prima con mammoth (funziona con .docx)
+  if (window.mammoth) {
+    try {
+      const r = await window.mammoth.extractRawText({ arrayBuffer })
+      if (r.value && r.value.trim()) return r.value
+    } catch(e) {}
+  }
+
+  // Fallback: estrai testo grezzo dal binario .doc
+  const bytes = new Uint8Array(arrayBuffer)
+  let text = ''
+  for (let i = 0; i < bytes.length - 1; i++) {
+    const b = bytes[i]
+    // Caratteri ASCII leggibili
+    if (b >= 32 && b < 127) {
+      text += String.fromCharCode(b)
+    } else if (b === 13 || b === 10) {
+      text += '\n'
+    }
+  }
+  // Pulisci: rimuovi sequenze di caratteri non-word
+  text = text.replace(/[^\x20-\x7E\n]/g, ' ')
+  text = text.replace(/ {3,}/g, '\n')
+  text = text.replace(/\n{3,}/g, '\n\n')
+  return text
+}
+
 export async function parseProtocollo(file) {
   const arrayBuffer = await file.arrayBuffer()
 
-  await new Promise((resolve, reject) => {
-    if (window.mammoth) return resolve()
-    const script = document.createElement('script')
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js'
-    script.onload = resolve
-    script.onerror = reject
-    document.head.appendChild(script)
-  })
-
-  let text = ''
-  try {
-    const result = await window.mammoth.extractRawText({ arrayBuffer })
-    text = result.value || ''
-  } catch(e1) {
-    try {
-      const result = await window.mammoth.extractRawText({ arrayBuffer: new Uint8Array(arrayBuffer) })
-      text = result.value || ''
-    } catch(e2) {
-      throw new Error('Impossibile leggere il file. Prova a salvarlo come .docx da Word e ricaricalo.')
-    }
+  // Carica mammoth se non presente
+  if (!window.mammoth) {
+    await new Promise((resolve) => {
+      const script = document.createElement('script')
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js'
+      script.onload = resolve
+      script.onerror = resolve // continua anche se fallisce
+      document.head.appendChild(script)
+    })
   }
-  if (!text.trim()) throw new Error('Il file sembra vuoto o in formato non supportato. Salvalo come .docx e riprova.')
+
+  const text = await readDocText(arrayBuffer)
+  if (!text || text.trim().length < 50) {
+    throw new Error('File non leggibile. Salvalo come .docx da Word e ricaricalo.')
+  }
+
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
 
   const MESI = {
@@ -45,13 +67,11 @@ export async function parseProtocollo(file) {
     return ''
   }
 
-  // ── Rilevamento tipo operazione ──────────────────────────
   const isMinishopApertura = /apre il MINISHOP di/i.test(text)
   const isNegozioApertura  = /apre la FILIALE di/i.test(text)
-  const isTrasferimento    = /si trasferi/i.test(text) || /trasferirà/i.test(text)
-  const isMiniToShop       = /MINISHOP di .+ diventa FILIALE/i.test(text)
+  const isTrasferimento    = /trasferi/i.test(text) && !isNegozioApertura && !isMinishopApertura
+  const isMiniToShop       = /MINISHOP.{1,30}diventa FILIALE/i.test(text)
 
-  // ── Nome ─────────────────────────────────────────────────
   let nome = ''
   if (isNegozioApertura) {
     const m = text.match(/apre la FILIALE di ([^\n:]+)/i)
@@ -60,22 +80,18 @@ export async function parseProtocollo(file) {
     const m = text.match(/apre il MINISHOP di ([^\n:]+)/i)
     nome = m ? m[1].trim() : ''
   } else if (isMiniToShop) {
-    const m = text.match(/il MINISHOP di ([^\s]+)\s+diventa/i)
+    const m = text.match(/MINISHOP di ([^\s]+)\s/i)
     nome = m ? m[1].trim() : ''
   } else if (isTrasferimento) {
-    const m = text.match(/FILIALE ([^:]+?):/i)
+    const m = text.match(/FILIALE ([^:\n]+?):/i)
     nome = m ? m[1].trim() : ''
   }
 
-  // ── Tipo filiale (ATG / Diretta / Autogestita) ────────────
-  const tipoMatch = text.match(/TIPO FILIALE\s*[-–]?\s*([^\n]+)/i)
+  const tipoMatch   = text.match(/TIPO FILIALE\s*[-–]?\s*([^\n]+)/i)
   const tipoFiliale = tipoMatch ? tipoMatch[1].trim() : ''
-  const isDiretta = /dirett/i.test(tipoFiliale)
-  // Autogestita = ATG
-  const isAutogestita = /autogestit/i.test(tipoFiliale) || /ATG/i.test(tipoFiliale)
+  const isDiretta   = /dirett/i.test(tipoFiliale)
 
-  // ── Campi anagrafici ──────────────────────────────────────
-  const codiceMatch  = text.match(/CODICE FILIALE\s*[-–]?\s*([^\n]+)/i)
+  const codiceMatch   = text.match(/CODICE FILIALE\s*[-–]?\s*([^\n]+)/i)
   const codiceFiliale = codiceMatch ? codiceMatch[1].trim() : ''
 
   const indirizzoMatch = text.match(/INDIRIZZO NEGOZIO\s*[-–]?\s*([^\n]+)/i)
@@ -87,7 +103,6 @@ export async function parseProtocollo(file) {
   const autogestoreMatch = text.match(/AUTOGESTORE\s+([^\n]+)/i)
   const autogestore = autogestoreMatch ? autogestoreMatch[1].trim() : ''
 
-  // ── Date ──────────────────────────────────────────────────
   let dataAmministrativa = ''
   let dataCommerciale    = ''
   let dataTrasferimento  = ''
@@ -107,46 +122,27 @@ export async function parseProtocollo(file) {
     }
   }
 
-  // ── Tipo suggerito ────────────────────────────────────────
   let suggeritedType = 'ALTRO'
-  if (isMiniToShop) {
-    suggeritedType = 'TRASFORMAZIONE DA MINI A SHOP'
-  } else if (isTrasferimento) {
-    suggeritedType = 'TRASFERIMENTO'
-  } else if (isMinishopApertura) {
-    suggeritedType = isDiretta ? 'NUOVO MINISHOP DIRETTA' : 'NUOVO MINISHOP'
-  } else if (isNegozioApertura) {
-    suggeritedType = isDiretta ? 'NUOVO NEGOZIO DIRETTA' : 'NUOVO NEGOZIO'
-  }
+  if (isMiniToShop)        suggeritedType = 'TRASFORMAZIONE DA MINI A SHOP'
+  else if (isTrasferimento) suggeritedType = 'TRASFERIMENTO'
+  else if (isMinishopApertura) suggeritedType = isDiretta ? 'NUOVO MINISHOP DIRETTA' : 'NUOVO MINISHOP'
+  else if (isNegozioApertura)  suggeritedType = isDiretta ? 'NUOVO NEGOZIO DIRETTA' : 'NUOVO NEGOZIO'
 
-  // ── Note pre-compilate ────────────────────────────────────
   const noteLines = []
-  if (codiceFiliale)       noteLines.push(`Codice filiale: ${codiceFiliale}`)
-  if (tipoFiliale)         noteLines.push(`Tipo: ${tipoFiliale}`)
-  if (indirizzo)           noteLines.push(`Indirizzo: ${indirizzo}`)
-  if (zona)                noteLines.push(`Zona: ${zona}`)
-  if (autogestore)         noteLines.push(`Autogestore: ${autogestore}`)
-  if (dataAmministrativa)  noteLines.push(`Apertura amministrativa (Fox): ${new Date(dataAmministrativa + 'T00:00:00').toLocaleDateString('it-IT')}`)
-  if (dataTrasferimento)   noteLines.push(`Data trasferimento: ${new Date(dataTrasferimento + 'T00:00:00').toLocaleDateString('it-IT')}`)
-  if (dataCommerciale)     noteLines.push(`Apertura commerciale: ${new Date(dataCommerciale + 'T00:00:00').toLocaleDateString('it-IT')}`)
+  if (codiceFiliale)      noteLines.push(`Codice filiale: ${codiceFiliale}`)
+  if (tipoFiliale)        noteLines.push(`Tipo: ${tipoFiliale}`)
+  if (indirizzo)          noteLines.push(`Indirizzo: ${indirizzo}`)
+  if (zona)               noteLines.push(`Zona: ${zona}`)
+  if (autogestore)        noteLines.push(`Autogestore: ${autogestore}`)
+  if (dataAmministrativa) noteLines.push(`Apertura amministrativa (Fox): ${new Date(dataAmministrativa + 'T00:00:00').toLocaleDateString('it-IT')}`)
+  if (dataTrasferimento)  noteLines.push(`Data trasferimento: ${new Date(dataTrasferimento + 'T00:00:00').toLocaleDateString('it-IT')}`)
+  if (dataCommerciale)    noteLines.push(`Apertura commerciale: ${new Date(dataCommerciale + 'T00:00:00').toLocaleDateString('it-IT')}`)
 
   return {
-    nome,
-    codiceFiliale,
-    tipoFiliale,
-    isDiretta,
-    isAutogestita,
-    isMinishopApertura,
-    isNegozioApertura,
-    isTrasferimento,
-    isMiniToShop,
-    indirizzo,
-    zona,
-    autogestore,
-    dataAmministrativa,
-    dataCommerciale,
-    dataTrasferimento,
-    suggeritedType,
-    noteLines,
+    nome, codiceFiliale, tipoFiliale, isDiretta,
+    isMinishopApertura, isNegozioApertura, isTrasferimento, isMiniToShop,
+    indirizzo, zona, autogestore,
+    dataAmministrativa, dataCommerciale, dataTrasferimento,
+    suggeritedType, noteLines,
   }
 }
