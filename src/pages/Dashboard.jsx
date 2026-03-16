@@ -95,19 +95,11 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
     try {
       const data = await parseProtocollo(file)
       setParsePreview(data)
-      const noteLines = []
-      if (data.codiceFiliale) noteLines.push(`Codice filiale: ${data.codiceFiliale}`)
-      if (data.tipoFiliale) noteLines.push(`Tipo: ${data.tipoFiliale}`)
-      if (data.indirizzo) noteLines.push(`Indirizzo: ${data.indirizzo}`)
-      if (data.zona) noteLines.push(`Zona: ${data.zona}`)
-      if (data.autogestore) noteLines.push(`Autogestore: ${data.autogestore}`)
-      if (data.dataAmministrativa) noteLines.push(`Apertura amministrativa (Fox): ${new Date(data.dataAmministrativa).toLocaleDateString('it-IT')}`)
-      if (data.dataCommerciale) noteLines.push(`Apertura commerciale: ${new Date(data.dataCommerciale).toLocaleDateString('it-IT')}`)
       setForm({
         name: data.nome || '',
         type: data.suggeritedType || 'NUOVO NEGOZIO',
         date: data.dataCommerciale || data.dataAmministrativa || '',
-        note: noteLines.join('\n'),
+        note: (data.noteLines || []).join('\n'),
       })
       setShowModal(true)
     } catch (err) {
@@ -262,13 +254,11 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
             <h2 style={{ fontSize: 17, fontWeight: 600, marginBottom: parsePreview ? 8 : '1rem' }}>
               {parsePreview ? '📄 Importato da protocollo' : 'Nuova operazione'}
             </h2>
-
             {parsePreview && (
               <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px', marginBottom: '1rem', fontSize: 12, color: 'var(--text2)' }}>
                 Dati letti dal documento — verifica e correggi se necessario
               </div>
             )}
-
             <div style={{ marginBottom: 12 }}>
               <label style={lbl}>Nome / Sede *</label>
               <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Es. Negozio Milano Centrale" autoFocus />
