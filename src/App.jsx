@@ -3,7 +3,7 @@ import Dashboard from './pages/Dashboard'
 import OperationDetail from './pages/OperationDetail'
 
 const USERS = [
-  { name: 'Seba',    role: 'editor' },
+  { name: 'Sebastiano',    role: 'editor' },
   { name: 'Tiziano', role: 'editor' },
   { name: 'Sandro',  role: 'editor' },
   { name: 'Riccardo',role: 'editor' },
