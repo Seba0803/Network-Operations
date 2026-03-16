@@ -147,8 +147,9 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '1rem' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', gap: 12, flexWrap: 'wrap' }}>
         <div>
+          <img src="/Network-Operations/logo.png" alt="Amplifon" style={{ height: 36, marginBottom: 8, display: 'block' }} />
           <h1 style={{ fontSize: 20, fontWeight: 600 }}>IT Ops — Growth Tracker</h1>
           <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
             Ciao, {userName}
