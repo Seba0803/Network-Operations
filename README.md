@@ -1,6 +1,6 @@
 # IT Ops — Growth Tracker
 
-App per tracciare aperture shop, minishop, trasferimenti e trasformazioni con checklist, note e sync in tempo reale per il team.
+App per tracciare aperture shop, minishop, trasferimenti e trasformazioni con checklist, note e sync in tempo reale per il team Asset&Network.
 
 ---
 
