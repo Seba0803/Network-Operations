@@ -15,14 +15,30 @@ function Badge({ type }) {
   )
 }
 
-function StatCard({ label, value, color }) {
-  return (
-    <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px' }}>
-      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 600, color: color || 'var(--text)' }}>{value}</div>
-    </div>
-  )
-}
+<div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 10, marginBottom: '0.75rem' }}>
+        <StatCard label="Totale" value={stats.total} />
+        <StatCard label="In corso" value={stats.wip} color="var(--amber)" />
+        <StatCard label="Completate" value={stats.done} color="var(--green)" />
+        <StatCard label="Da iniziare" value={stats.todo} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+        {Object.entries(TYPE_LABELS).map(([key, label]) => {
+          const count = ops.filter(o => o.type === key).length
+          if (count === 0) return null
+          const c = TYPE_COLORS[key] || TYPE_COLORS['ALTRO']
+          const done = ops.filter(o => o.type === key && getStatus(o) === 'done').length
+          return (
+            <div key={key} style={{ background: c.bg, borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
+              <div style={{ fontSize: 11, color: c.text, fontWeight: 500 }}>{label}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 20, fontWeight: 600, color: c.text }}>{count}</span>
+                {done > 0 && <span style={{ fontSize: 11, color: c.text, opacity: 0.7 }}>{done} ✓</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
 
 function ProgressBar({ done, total }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
