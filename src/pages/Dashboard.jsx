@@ -28,10 +28,12 @@ function ProgressBar({ done, total }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-      <div style={{ flex: 1, height: 4, background: 'var(--bg3)', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ width: pct + '%', height: '100%', background: pct === 100 ? 'var(--green)' : 'var(--blue)', borderRadius: 2, transition: 'width 0.3s' }} />
+      <div style={{ flex: 1, height: 6, background: 'var(--bg3)', borderRadius: 3, overflow: 'hidden' }}>
+        <div style={{ width: pct + '%', height: '100%', background: pct === 100 ? 'var(--green)' : 'var(--blue)', borderRadius: 3, transition: 'width 0.3s' }} />
       </div>
-      <span style={{ fontSize: 12, color: 'var(--text2)', minWidth: 36, textAlign: 'right' }}>{done}/{total}</span>
+      <span style={{ fontSize: 12, color: pct === 100 ? 'var(--green)' : 'var(--text2)', minWidth: 52, textAlign: 'right', fontWeight: 500 }}>
+        {done}/{total} · {pct}%
+      </span>
     </div>
   )
 }
