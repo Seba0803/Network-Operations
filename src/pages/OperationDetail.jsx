@@ -1,12 +1,29 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { TYPE_LABELS, TYPE_COLORS } from '../lib/templates'
+import { parseProtocollo } from '../lib/parseWord'
 
 function Badge({ type }) {
   const c = TYPE_COLORS[type] || TYPE_COLORS['ALTRO']
   return (
     <span style={{ background: c.bg, color: c.text, fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 500 }}>
       {TYPE_LABELS[type] || type}
+    </span>
+  )
+}
+
+const PRIORITY_OPTIONS = [
+  { value: 'normale',    label: 'Normale',    color: '#888780', bg: '#F1EFE8' },
+  { value: 'attenzione', label: 'Attenzione', color: '#854F0B', bg: '#FAEEDA' },
+  { value: 'critico',    label: 'Critico',    color: '#A32D2D', bg: '#FCEBEB' },
+]
+
+function PriorityBadge({ priority }) {
+  const p = PRIORITY_OPTIONS.find(o => o.value === priority) || PRIORITY_OPTIONS[0]
+  const dot = priority === 'critico' ? '🔴' : priority === 'attenzione' ? '🟡' : '🟢'
+  return (
+    <span style={{ background: p.bg, color: p.color, fontSize: 12, padding: '3px 10px', borderRadius: 20, fontWeight: 500 }}>
+      {dot} {p.label}
     </span>
   )
 }
@@ -20,6 +37,8 @@ export default function OperationDetail({ operationId, userName, canEdit, onBack
   const [saving, setSaving] = useState({})
   const [editMode, setEditMode] = useState(false)
   const [editForm, setEditForm] = useState({})
+  const [parsing, setParsing] = useState(false)
+  const fileRef = useRef()
 
   const load = useCallback(async () => {
     const { data: operation } = await supabase.from('operations').select('*').eq('id', operationId).single()
@@ -27,13 +46,20 @@ export default function OperationDetail({ operationId, userName, canEdit, onBack
     setOp(operation)
     setTasks(taskList || [])
     setLoading(false)
-    if (operation) setEditForm({ name: operation.name, type: operation.type, date: operation.date || '', note: operation.note || '' })
+    if (operation) setEditForm({
+      name: operation.name,
+      type: operation.type,
+      date: operation.date || '',
+      note: operation.note || '',
+      priority: operation.priority || 'normale',
+    })
   }, [operationId])
 
   useEffect(() => {
     load()
     const channel = supabase.channel('detail-' + operationId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `operation_id=eq.${operationId}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'operations', filter: `id=eq.${operationId}` }, load)
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [load, operationId])
@@ -61,13 +87,51 @@ export default function OperationDetail({ operationId, userName, canEdit, onBack
     load()
   }
 
+  const savePriority = async (priority) => {
+    await supabase.from('operations').update({ priority }).eq('id', operationId)
+    load()
+  }
+
   const saveEdit = async () => {
     await supabase.from('operations').update({
-      name: editForm.name, type: editForm.type,
-      date: editForm.date || null, note: editForm.note || null,
+      name: editForm.name,
+      type: editForm.type,
+      date: editForm.date || null,
+      note: editForm.note || null,
+      priority: editForm.priority || 'normale',
     }).eq('id', operationId)
     setEditMode(false)
     load()
+  }
+
+  const handleWordUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setParsing(true)
+    try {
+      if (!window.mammoth) {
+        await new Promise((resolve) => {
+          const script = document.createElement('script')
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js'
+          script.onload = resolve
+          script.onerror = resolve
+          document.head.appendChild(script)
+        })
+      }
+      const data = await parseProtocollo(file)
+      const noteLines = data.noteLines || []
+      const newNote = noteLines.join('\n')
+      await supabase.from('operations').update({
+        note: newNote,
+        date: data.dataCommerciale || data.dataAmministrativa || op.date,
+      }).eq('id', operationId)
+      load()
+      alert('Protocollo importato! Note e data aggiornate.')
+    } catch (err) {
+      alert('Errore nella lettura del file: ' + err.message)
+    }
+    setParsing(false)
+    e.target.value = ''
   }
 
   if (loading) return <div style={{ maxWidth: 680, margin: '0 auto', padding: '2rem', color: 'var(--text2)', fontSize: 14 }}>Caricamento…</div>
@@ -77,11 +141,13 @@ export default function OperationDetail({ operationId, userName, canEdit, onBack
   const total = tasks.length
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
   const dateStr = op.date ? new Date(op.date + 'T00:00:00').toLocaleDateString('it-IT') : ''
+  const priority = op.priority || 'normale'
 
   return (
     <div style={{ maxWidth: 680, margin: '0 auto', padding: '1rem' }}>
       <button onClick={onBack} style={btnBack}>← Dashboard</button>
 
+      {/* Header card */}
       <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.25rem', marginBottom: '1rem' }}>
         {editMode && canEdit ? (
           <div>
@@ -91,29 +157,76 @@ export default function OperationDetail({ operationId, userName, canEdit, onBack
                 {Object.keys(TYPE_LABELS).map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
               </select>
             </div>
-            <div style={{ marginBottom: 10 }}><label style={lbl}>Data prevista</label><input type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} /></div>
+            <div style={{ marginBottom: 10 }}><label style={lbl}>Data apertura commerciale</label><input type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} /></div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={lbl}>Criticità</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {PRIORITY_OPTIONS.map(p => (
+                  <button key={p.value} onClick={() => setEditForm({ ...editForm, priority: p.value })}
+                    style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                      background: editForm.priority === p.value ? p.bg : 'var(--bg2)',
+                      color: editForm.priority === p.value ? p.color : 'var(--text2)',
+                      border: editForm.priority === p.value ? `1.5px solid ${p.color}` : '1px solid var(--border)',
+                      fontWeight: editForm.priority === p.value ? 600 : 400 }}>
+                    {p.value === 'critico' ? '🔴' : p.value === 'attenzione' ? '🟡' : '🟢'} {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div style={{ marginBottom: 14 }}><label style={lbl}>Note</label><textarea value={editForm.note} onChange={e => setEditForm({ ...editForm, note: e.target.value })} /></div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={() => setEditMode(false)} style={btnSecondary}>Annulla</button>
               <button onClick={saveEdit} style={btnPrimary}>Salva</button>
             </div>
           </div>
         ) : (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-            <div>
-              <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 6 }}>{op.name}</h2>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: op.note ? 8 : 0 }}>
-                <Badge type={op.type} />
-                {dateStr && <span style={{ fontSize: 13, color: 'var(--text2)' }}>Apertura: {dateStr}</span>}
-                {op.created_by_name && <span style={{ fontSize: 12, color: 'var(--text3)' }}>Creato da {op.created_by_name}</span>}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                  <h2 style={{ fontSize: 18, fontWeight: 600 }}>{op.name}</h2>
+                  <PriorityBadge priority={priority} />
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: op.note ? 8 : 0 }}>
+                  <Badge type={op.type} />
+                  {dateStr && <span style={{ fontSize: 13, color: 'var(--text2)' }}>Apertura: {dateStr}</span>}
+                  {op.created_by_name && <span style={{ fontSize: 12, color: 'var(--text3)' }}>Creato da {op.created_by_name}</span>}
+                </div>
+                {op.note && <div style={{ fontSize: 13, color: 'var(--text2)', fontStyle: 'italic', whiteSpace: 'pre-line' }}>{op.note}</div>}
               </div>
-              {op.note && <div style={{ fontSize: 13, color: 'var(--text2)', fontStyle: 'italic' }}>{op.note}</div>}
+              {canEdit && (
+                <div style={{ display: 'flex', gap: 6, flexDirection: 'column', alignItems: 'flex-end' }}>
+                  <button onClick={() => setEditMode(true)} style={btnSecondary}>Modifica</button>
+                  <input ref={fileRef} type="file" accept=".doc,.docx" onChange={handleWordUpload} style={{ display: 'none' }} />
+                  <button onClick={() => fileRef.current.click()} disabled={parsing}
+                    style={{ ...btnSecondary, fontSize: 12, padding: '5px 10px' }}>
+                    {parsing ? 'Lettura...' : '📄 Importa protocollo'}
+                  </button>
+                </div>
+              )}
             </div>
-            {canEdit && <button onClick={() => setEditMode(true)} style={btnSecondary}>Modifica</button>}
+
+            {/* Semaforo rapido */}
+            {canEdit && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 12, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--text2)', marginRight: 4 }}>Criticità:</span>
+                {PRIORITY_OPTIONS.map(p => (
+                  <button key={p.value} onClick={() => savePriority(p.value)}
+                    style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                      background: priority === p.value ? p.bg : 'var(--bg2)',
+                      color: priority === p.value ? p.color : 'var(--text2)',
+                      border: priority === p.value ? `1.5px solid ${p.color}` : '1px solid var(--border)',
+                      fontWeight: priority === p.value ? 600 : 400 }}>
+                    {p.value === 'critico' ? '🔴' : p.value === 'attenzione' ? '🟡' : '🟢'} {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
+      {/* Progress */}
       <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 500 }}>Avanzamento</span>
@@ -125,6 +238,7 @@ export default function OperationDetail({ operationId, userName, canEdit, onBack
         <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6 }}>{done} di {total} attività completate</div>
       </div>
 
+      {/* Tasks */}
       <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontSize: 13, fontWeight: 500, color: 'var(--text2)' }}>
           Sotto-attività {!canEdit && <span style={{ background: '#FAEEDA', color: '#633806', fontSize: 11, padding: '1px 8px', borderRadius: 20, marginLeft: 6 }}>sola lettura</span>}
