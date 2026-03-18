@@ -241,21 +241,6 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
           </div>
         </div>
       </div>
-      
-        {/* Criticità */}
-        {ops.filter(o => o.priority === 'critico').length > 0 && (
-          <div style={{ background: '#FCEBEB', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
-            <div style={{ fontSize: 11, color: '#A32D2D', fontWeight: 500 }}>🔴 Critici</div>
-            <span style={{ fontSize: 20, fontWeight: 600, color: '#A32D2D' }}>{ops.filter(o => o.priority === 'critico').length}</span>
-          </div>
-        )}
-        {ops.filter(o => o.priority === 'attenzione').length > 0 && (
-          <div style={{ background: '#FAEEDA', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
-            <div style={{ fontSize: 11, color: '#854F0B', fontWeight: 500 }}>🟡 Attenzione</div>
-            <span style={{ fontSize: 20, fontWeight: 600, color: '#854F0B' }}>{ops.filter(o => o.priority === 'attenzione').length}</span>
-          </div>
-        )}
-      </div>
 
       {/* Ricerca e filtri */}
       <div style={{ marginBottom: '0.75rem' }}>
