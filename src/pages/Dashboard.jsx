@@ -6,6 +6,20 @@ import { parseProtocollo } from '../lib/parseWord'
 
 const TYPES = Object.keys(TYPE_LABELS)
 
+const PRIORITY_OPTIONS = [
+  { value: 'normale',    label: 'Normale',    color: '#888780', bg: '#F1EFE8' },
+  { value: 'attenzione', label: 'Attenzione', color: '#854F0B', bg: '#FAEEDA' },
+  { value: 'critico',    label: 'Critico',    color: '#A32D2D', bg: '#FCEBEB' },
+]
+
+const PRIORITY_ORDER = { critico: 0, attenzione: 1, normale: 2 }
+
+function PriorityDot({ priority }) {
+  if (priority === 'critico')    return <span title="Critico"    style={{ fontSize: 14 }}>🔴</span>
+  if (priority === 'attenzione') return <span title="Attenzione" style={{ fontSize: 14 }}>🟡</span>
+  return null
+}
+
 function Badge({ type }) {
   const c = TYPE_COLORS[type] || TYPE_COLORS['ALTRO']
   return (
@@ -54,7 +68,6 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
     const { data: operations } = await supabase
       .from('operations')
       .select('*, tasks(*)')
-      .order('created_at', { ascending: false })
     setOps(operations || [])
     setLoading(false)
   }, [])
@@ -77,7 +90,19 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
     return 'wip'
   }
 
-  const filtered = ops.filter(op => {
+  // Ordinamento: prima per criticità, poi per data più vicina
+  const sortedOps = [...(ops)].sort((a, b) => {
+    const pa = PRIORITY_ORDER[a.priority] ?? 2
+    const pb = PRIORITY_ORDER[b.priority] ?? 2
+    if (pa !== pb) return pa - pb
+    // Per data: le più vicine in cima (null in fondo)
+    if (!a.date && !b.date) return 0
+    if (!a.date) return 1
+    if (!b.date) return -1
+    return new Date(a.date) - new Date(b.date)
+  })
+
+  const filtered = sortedOps.filter(op => {
     if (filter !== 'ALL' && op.type !== filter) return false
     if (search && !op.name.toLowerCase().includes(search.toLowerCase())) return false
     return true
@@ -120,6 +145,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
       date: form.date || null,
       note: form.note.trim() || null,
       created_by_name: userName,
+      priority: 'normale',
     }).select().single()
 
     if (!error && op) {
@@ -144,7 +170,14 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
 
   const statusDot = (status) => {
     const color = status === 'done' ? 'var(--green)' : status === 'wip' ? 'var(--amber)' : 'var(--border2)'
-    return <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', marginRight: 8, flexShrink: 0 }} />
+    return <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
+  }
+
+  // Giorni mancanti all'apertura
+  const daysTo = (dateStr) => {
+    if (!dateStr) return null
+    const diff = Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24))
+    return diff
   }
 
   return (
@@ -166,9 +199,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
           {canEdit && (
             <>
               <input ref={fileRef} type="file" accept=".doc,.docx" onChange={handleWordUpload} style={{ display: 'none' }} />
-              <button
-                onClick={() => fileRef.current.click()}
-                disabled={parsing}
+              <button onClick={() => fileRef.current.click()} disabled={parsing}
                 style={{ padding: '8px 14px', background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 8, fontSize: 13, color: 'var(--text)' }}>
                 {parsing ? 'Lettura...' : '📄 Importa protocollo'}
               </button>
@@ -181,6 +212,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
         </div>
       </div>
 
+      {/* Stats generali */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 10, marginBottom: '0.75rem' }}>
         <StatCard label="Totale" value={stats.total} />
         <StatCard label="In corso" value={stats.wip} color="var(--amber)" />
@@ -188,6 +220,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
         <StatCard label="Da iniziare" value={stats.todo} />
       </div>
 
+      {/* Stats per tipologia */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1.25rem' }}>
         {Object.entries(TYPE_LABELS).map(([key, label]) => {
           const count = ops.filter(o => o.type === key).length
@@ -195,7 +228,9 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
           const c = TYPE_COLORS[key] || TYPE_COLORS['ALTRO']
           const done = ops.filter(o => o.type === key && getStatus(o) === 'done').length
           return (
-            <div key={key} style={{ background: c.bg, borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
+            <div key={key} onClick={() => setFilter(key)}
+              style={{ background: c.bg, borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110, cursor: 'pointer',
+                border: filter === key ? `2px solid ${c.text}` : '2px solid transparent' }}>
               <div style={{ fontSize: 11, color: c.text, fontWeight: 500 }}>{label}</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                 <span style={{ fontSize: 20, fontWeight: 600, color: c.text }}>{count}</span>
@@ -204,25 +239,43 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
             </div>
           )
         })}
+        {/* Criticità */}
+        {ops.filter(o => o.priority === 'critico').length > 0 && (
+          <div style={{ background: '#FCEBEB', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
+            <div style={{ fontSize: 11, color: '#A32D2D', fontWeight: 500 }}>🔴 Critici</div>
+            <span style={{ fontSize: 20, fontWeight: 600, color: '#A32D2D' }}>{ops.filter(o => o.priority === 'critico').length}</span>
+          </div>
+        )}
+        {ops.filter(o => o.priority === 'attenzione').length > 0 && (
+          <div style={{ background: '#FAEEDA', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
+            <div style={{ fontSize: 11, color: '#854F0B', fontWeight: 500 }}>🟡 Attenzione</div>
+            <span style={{ fontSize: 20, fontWeight: 600, color: '#854F0B' }}>{ops.filter(o => o.priority === 'attenzione').length}</span>
+          </div>
+        )}
       </div>
 
+      {/* Ricerca e filtri */}
       <div style={{ marginBottom: '0.75rem' }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca per nome sede…" style={{ marginBottom: 10 }} />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {['ALL', ...TYPES].map(t => (
+          <button onClick={() => setFilter('ALL')} style={{
+            padding: '4px 12px', borderRadius: 20, fontSize: 13, cursor: 'pointer',
+            background: filter === 'ALL' ? 'var(--text)' : 'var(--bg2)',
+            color: filter === 'ALL' ? 'var(--bg)' : 'var(--text2)',
+            border: filter === 'ALL' ? 'none' : '1px solid var(--border)', fontWeight: filter === 'ALL' ? 500 : 400,
+          }}>Tutte</button>
+          {TYPES.map(t => (
             <button key={t} onClick={() => setFilter(t)} style={{
               padding: '4px 12px', borderRadius: 20, fontSize: 13, cursor: 'pointer',
               background: filter === t ? 'var(--text)' : 'var(--bg2)',
               color: filter === t ? 'var(--bg)' : 'var(--text2)',
-              border: filter === t ? 'none' : '1px solid var(--border)',
-              fontWeight: filter === t ? 500 : 400,
-            }}>
-              {t === 'ALL' ? 'Tutte' : TYPE_LABELS[t]}
-            </button>
+              border: filter === t ? 'none' : '1px solid var(--border)', fontWeight: filter === t ? 500 : 400,
+            }}>{TYPE_LABELS[t]}</button>
           ))}
         </div>
       </div>
 
+      {/* Lista operazioni */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text2)', fontSize: 14 }}>Caricamento…</div>
       ) : filtered.length === 0 ? (
@@ -236,19 +289,27 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
             const doneTasks = tasks.filter(t => t.done).length
             const status = getStatus(op)
             const dateStr = op.date ? new Date(op.date + 'T00:00:00').toLocaleDateString('it-IT') : ''
+            const days = daysTo(op.date)
+            const priority = op.priority || 'normale'
+            const borderColor = priority === 'critico' ? '#F09595' : priority === 'attenzione' ? '#FAC775' : 'var(--border)'
             return (
               <div key={op.id} onClick={() => onOpenDetail(op.id)}
-                style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', cursor: 'pointer', transition: 'border-color 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border2)'}
-                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                style={{ background: 'var(--bg)', border: `1px solid ${borderColor}`, borderRadius: 12, padding: '14px 16px', cursor: 'pointer', transition: 'border-color 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = priority === 'critico' ? '#E24B4A' : priority === 'attenzione' ? '#EF9F27' : 'var(--border2)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = borderColor}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {statusDot(status)}
+                  <PriorityDot priority={priority} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, fontSize: 15 }}>{op.name}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
                       <Badge type={op.type} />
-                      {dateStr && <span style={{ fontSize: 12, color: 'var(--text2)' }}>{dateStr}</span>}
+                      {dateStr && (
+                        <span style={{ fontSize: 12, color: days !== null && days <= 7 ? '#A32D2D' : days !== null && days <= 30 ? '#854F0B' : 'var(--text2)', fontWeight: days !== null && days <= 7 ? 600 : 400 }}>
+                          {dateStr}{days !== null && days >= 0 ? ` (${days}gg)` : days !== null && days < 0 ? ' (scaduta)' : ''}
+                        </span>
+                      )}
                       {op.created_by_name && <span style={{ fontSize: 12, color: 'var(--text3)' }}>— {op.created_by_name}</span>}
                     </div>
                     {op.note && <div style={{ fontSize: 12, color: 'var(--text2)', fontStyle: 'italic', marginTop: 4, whiteSpace: 'pre-line' }}>{op.note}</div>}
@@ -268,6 +329,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
         </div>
       )}
 
+      {/* Modal nuova operazione */}
       {canEdit && showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
           onClick={e => e.target === e.currentTarget && setShowModal(false)}>
