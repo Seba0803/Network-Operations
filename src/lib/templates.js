@@ -11,6 +11,7 @@ export const TASK_TEMPLATES = {
     'Ingaggio Promigroup',
     'Richiesta linea dati e linea voce',
     'Installazione stampanti',
+    'Controllare numero postazioni',
   ],
   'NUOVO NEGOZIO DIRETTA': [
     'Spedizione 1 HIT',
