@@ -220,7 +220,28 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
         <StatCard label="Da iniziare" value={stats.todo} />
       </div>
 
-{/* Stats criticità */}
+{/* Stats per tipologia */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+        {Object.entries(TYPE_LABELS).map(([key, label]) => {
+          const count = ops.filter(o => o.type === key).length
+          if (count === 0) return null
+          const c = TYPE_COLORS[key] || TYPE_COLORS['ALTRO']
+          const done = ops.filter(o => o.type === key && getStatus(o) === 'done').length
+          return (
+            <div key={key} onClick={() => setFilter(key)}
+              style={{ background: c.bg, borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 2, minWidth: 100, cursor: 'pointer',
+                border: filter === key ? `2px solid ${c.text}` : '2px solid transparent' }}>
+              <div style={{ fontSize: 11, color: c.text, fontWeight: 500 }}>{label}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 20, fontWeight: 600, color: c.text }}>{count}</span>
+                {done > 0 && <span style={{ fontSize: 11, color: c.text, opacity: 0.7 }}>{done} ✓</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Stats criticità */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 10, marginBottom: '1.25rem' }}>
         <div style={{ background: '#F1EFE8', borderRadius: 10, padding: '12px 16px' }}>
           <div style={{ fontSize: 12, color: '#5F5E5A', marginBottom: 4 }}>🟢 Normali</div>
