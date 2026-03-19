@@ -91,11 +91,7 @@ export default function Dashboard({ userName, canEdit, onChangeName, onOpenDetai
   }
 
   // Ordinamento: prima per criticità, poi per data più vicina
-  const sortedOps = [...(ops)].sort((a, b) => {
-    const pa = PRIORITY_ORDER[a.priority] ?? 2
-    const pb = PRIORITY_ORDER[b.priority] ?? 2
-    if (pa !== pb) return pa - pb
-    // Per data: le più vicine in cima (null in fondo)
+const sortedOps = [...(ops)].sort((a, b) => {
     if (!a.date && !b.date) return 0
     if (!a.date) return 1
     if (!b.date) return -1
